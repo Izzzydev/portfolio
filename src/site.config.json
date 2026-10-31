@@ -5,11 +5,18 @@
     "fallbackName": "IzzyBell",
     "username": "izzybelldev",
     "socials": [
-      { "title": "Codeberg", "icon": "codeberg", "url": "https://codeberg.org/izzybell138" },
-      { "title": "Email", "icon": "email", "copy": "izzybell@atomicmail.io" }
+      {
+        "title": "Codeberg",
+        "icon": "codeberg",
+        "url": "https://codeberg.org/izzybell138"
+      },
+      {
+        "title": "Email",
+        "icon": "email",
+        "copy": "izzybell@atomicmail.io"
+      }
     ]
   },
-
   "theme": {
     "bg": "#08090c",
     "card": "#0f1116",
@@ -23,26 +30,46 @@
     "border": "rgba(255,255,255,.06)",
     "status": "#43b581"
   },
-
   "status": {
-    "online": { "color": "#43b581", "label": "Online" },
-    "idle": { "color": "#faa61a", "label": "Idle" },
-    "dnd": { "color": "#f04747", "label": "Do Not Disturb" },
-    "offline": { "color": "#747f8d", "label": "Offline" },
-    "connecting": { "color": "#747f8d", "label": "Connecting…" }
+    "online": {
+      "color": "#43b581",
+      "label": "Online"
+    },
+    "idle": {
+      "color": "#faa61a",
+      "label": "Idle"
+    },
+    "dnd": {
+      "color": "#f04747",
+      "label": "Do Not Disturb"
+    },
+    "offline": {
+      "color": "#747f8d",
+      "label": "Offline"
+    },
+    "connecting": {
+      "color": "#747f8d",
+      "label": "Connecting…"
+    }
   },
-
   "banner": {
     "effects": [
-      "LineWaves", "Plasma",
-      "Dither", "ShapeGrid", "Balatro"
+      "LineWaves",
+      "Plasma",
+      "Dither",
+      "ShapeGrid",
+      "Balatro"
     ],
     "parallaxShift": 12,
     "overscan": 26,
-    "defaultColors": ["#5865f2", "#7d5bf2", "#4e54e0", "#161a2e"],
+    "defaultColors": [
+      "#5865f2",
+      "#7d5bf2",
+      "#4e54e0",
+      "#161a2e"
+    ],
     "revealTimeoutMs": 1200
   },
-
   "audio": {
     "src": "./audio/pissy-pamper.mp3",
     "volume": 0.5,
@@ -52,7 +79,6 @@
     "pauseWhenUnfocused": true,
     "gateLabel": "click anywhere to enter"
   },
-
   "background": {
     "particles": true,
     "particleCount": 800,
@@ -60,16 +86,15 @@
     "particleSpeed": 0.3,
     "particleBaseSize": 100,
     "vignette": true,
-    "vignetteStrength": 0.55
+    "vignetteStrength": 0.55,
+    "grain": true
   },
-
   "palette": {
     "minSaturation": 0.55,
     "maxSaturation": 0.9,
     "decorationInfluence": 0.35,
     "accentShift": 0.55
   },
-
   "tabs": [
     {
       "id": "about",
@@ -82,10 +107,16 @@
       "paragraphs": [
         "I make minecraft mods, cheat clients, plugins and more!",
         "The objective is to show kindness to all individuals; it is not my role to penalize others for their misdeeds.",
-        "In the end, we are all detected. - Hellen Wong"
+        {
+          "text": "In the end, we are all detected. - Hellen Wong",
+          "variant": "quote"
+        }
       ],
       "links": [
-        { "label": "https://nohello.net/", "url": "https://nohello.net/" }
+        {
+          "label": "https://nohello.net/",
+          "url": "https://nohello.net/"
+        }
       ]
     },
     {
@@ -95,23 +126,58 @@
       "type": "skills",
       "heading": "Interests & Skills",
       "glyph": "⌘",
-      "interests": ["Web Development", "UI / UX", "Open Source", "Game Dev"],
+      "interests": [
+        "Web Development",
+        "UI / UX",
+        "Open Source",
+        "Game Dev"
+      ],
       "languages": {
-        "marquee": { "speed": 38, "direction": -1 },
+        "marquee": {
+          "speed": 38,
+          "direction": -1
+        },
         "items": [
-          { "key": "cpp", "label": "C++", "link": "https://isocpp.org/" },
-          { "key": "java", "label": "Java", "link": "https://www.java.com/" },
-          { "key": "python", "label": "Python", "link": "https://www.python.org/" },
-          { "key": "git", "label": "Git", "link": "https://git-scm.com/" },
-          { "key": "github", "label": "GitHub", "link": "https://github.com/" }
+          {
+            "key": "cpp",
+            "label": "C++",
+            "link": "https://isocpp.org/"
+          },
+          {
+            "key": "java",
+            "label": "Java",
+            "link": "https://www.java.com/"
+          },
+          {
+            "key": "python",
+            "label": "Python",
+            "link": "https://www.python.org/"
+          },
+          {
+            "key": "git",
+            "label": "Git",
+            "link": "https://git-scm.com/"
+          },
+          {
+            "key": "github",
+            "label": "GitHub",
+            "link": "https://github.com/"
+          }
         ]
       },
       "games": {
         "heading": "Games In Rotation",
         "headingIcon": "gamepad",
-        "marquee": { "speed": 34, "direction": 1 },
+        "marquee": {
+          "speed": 34,
+          "direction": 1
+        },
         "items": [
-          { "label": "Minecraft", "img": "./games/minecraft.jpg", "link": "https://www.minecraft.net/" }
+          {
+            "label": "Minecraft",
+            "img": "./games/minecraft.jpg",
+            "link": "https://www.minecraft.net/"
+          }
         ]
       }
     },
@@ -123,9 +189,21 @@
       "heading": "Music Taste",
       "glyph": "♫",
       "tracks": [
-        { "id": "1zi7xx7UVEFkmKfv06H8x0", "title": "One Dance", "artist": "Drake ft. Wizkid & Kyla" },
-        { "id": "6DCZcSspjsKoFjzjrWoCdn", "title": "God's Plan", "artist": "Drake" },
-        { "id": "514joG57v4yKTsfQmz7stz", "title": "Janice STFU", "artist": "Drake" }
+        {
+          "id": "1zi7xx7UVEFkmKfv06H8x0",
+          "title": "One Dance",
+          "artist": "Drake ft. Wizkid & Kyla"
+        },
+        {
+          "id": "6DCZcSspjsKoFjzjrWoCdn",
+          "title": "God's Plan",
+          "artist": "Drake"
+        },
+        {
+          "id": "514joG57v4yKTsfQmz7stz",
+          "title": "Janice STFU",
+          "artist": "Drake"
+        }
       ],
       "note": "Hit play to preview each track. Log in to Spotify in your browser to hear the full song."
     },
@@ -142,7 +220,12 @@
           "id": "src",
           "title": "this site",
           "desc": "The source behind this very page — a Vite + React single-page portfolio with a live Discord status, Spotify players and dynamic palette. Click through to read the code on GitHub.",
-          "link": "https://github.com/Izzzydev/portfolio"
+          "link": "https://github.com/Izzzydev/portfolio",
+          "tags": [
+            "React",
+            "Vite",
+            "WebGL"
+          ]
         },
         {
           "id": "coming-soon",
@@ -166,7 +249,9 @@
         "Lie on purpose to trick, hurt, or manipulate others",
         "Start drama or arguments just for attention",
         "Have extreme hateful or prejudiced views (opinions are okay, but constant hate is not)"
-      ]
+      ],
+      "layout": "list",
+      "intro": "Please do not interact with me if you:"
     },
     {
       "id": "ai",
@@ -180,14 +265,24 @@
         "I use AI to speed up and streamline my own projects. Every part that matters: the functionality, the ideas, the research into game mechanics, the outside sources, comes from me. AI doesn't originate any of that.",
         "What I use it for is the low-creativity work: organizing and refactoring code, making repetitive changes, and generating code from mock/flow code I've already written. Basically, the parts that don't require real thinking to finish.",
         "AI is a tool, and I treat it like one. If a piece of a project needs creativity, problem-solving, or actual thought, I don't hand it off.",
-        "I don't judge how other people use AI, with a few exceptions. I don't respect:",
-        "Lying about using it",
-        "AI-generated art",
-        "\"Vibe-coded\" workflows where someone vaguely describes what they want and ships whatever comes out",
-        "Selling cheap AI-made products meant to trick the buyer"
-      ]
+        "I don't judge how other people use AI, with a few exceptions. I don't respect:"
+      ],
+      "align": "left",
+      "subList": {
+        "items": [
+          "Lying about using it",
+          "AI-generated art",
+          "\"Vibe-coded\" workflows where someone vaguely describes what they want and ships whatever comes out",
+          "Selling cheap AI-made products meant to trick the buyer"
+        ]
+      }
     }
   ],
-
-  "footer": "made by @ethebee3 on discord"
+  "footer": "made by @ethebee3 on discord",
+  "meta": {
+    "title": "IzzyBell — portfolio",
+    "description": "Minecraft mods, cheat clients, plugins and more. Live Discord status, music and projects.",
+    "themeColor": "#08090c",
+    "image": "./thumbnail.webp"
+  }
 }

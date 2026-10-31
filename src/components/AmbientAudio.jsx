@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 
+// Ambient background music plus its controls.
+//
+// The controls are a single dock in the bottom-right corner: a play/mute
+// button that expands on hover (or keyboard focus) to reveal the volume
+// slider and a toggle for whether playback continues while the tab is in the
+// background. Earlier versions scattered those three across three corners of
+// the viewport, which read as three unrelated widgets.
+
 const STORAGE_KEY = 'om-audio-muted'
 const FOCUS_KEY = 'om-audio-focus'
 const VOL_KEY = 'om-audio-vol'
@@ -43,7 +51,7 @@ export default function AmbientAudio({
       window.removeEventListener('blur', sync)
       document.removeEventListener('visibilitychange', sync)
     }
-  }, [pauseWhenUnfocused])
+  }, [pauseWhenUnfocused, keepPlaying])
 
   useEffect(() => {
     const el = audioRef.current
@@ -93,6 +101,8 @@ export default function AmbientAudio({
   }
 
   const showGate = clickToStart && !started && !muted && !failed
+  const showDock = showToggle && !failed && !showGate
+  const pct = Math.round(vol * 100)
 
   return (
     <>
@@ -113,80 +123,47 @@ export default function AmbientAudio({
         </div>
       )}
 
-      {showToggle && !failed && !showGate && (
-        <button
-          onClick={toggle}
-          className="om-audio-toggle"
-          title={playing ? 'Mute music' : 'Play music'}
-          aria-label={playing ? 'Mute music' : 'Play music'}
-        >
-          {playing ? '♪' : '♪̸'}
-        </button>
-      )}
+      {showDock && (
+        <div className="om-dock">
+          {/* Expanding half, revealed on hover/focus. Rendered before the
+              button so it grows leftward out of the corner. */}
+          <div className="om-dock-expand">
+            <button
+              className="om-dock-pin"
+              data-on={keepPlaying}
+              onClick={() => setKeepPlaying((k) => !k)}
+              aria-pressed={keepPlaying}
+              title={keepPlaying ? 'Playing in the background — click to pause when the tab loses focus' : 'Keep playing when the tab loses focus'}
+            >
+              ∞
+            </button>
+            <input
+              className="om-range"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={vol}
+              onChange={(e) => setVol(parseFloat(e.target.value))}
+              style={{ '--fill': pct + '%' }}
+              title={`Volume: ${pct}%`}
+              aria-label="Volume"
+            />
+            <span style={{ fontSize: '10.5px', color: 'var(--muted)', minWidth: '30px', textAlign: 'right', userSelect: 'none', fontVariantNumeric: 'tabular-nums' }}>
+              {pct}%
+            </span>
+          </div>
 
-      {showToggle && !failed && !showGate && (
-        <button
-          onClick={() => setKeepPlaying(!keepPlaying)}
-          style={{
-            position: 'fixed',
-            bottom: '16px',
-            left: '16px',
-            zIndex: 9999,
-            background: keepPlaying ? 'var(--accent)' : 'var(--card2)',
-            color: keepPlaying ? 'var(--bg)' : 'var(--text)',
-            border: '1px solid var(--border)',
-            borderRadius: '20px',
-            padding: '6px 12px',
-            fontSize: '11px',
-            fontWeight: 600,
-            cursor: 'pointer',
-            opacity: 0.85,
-            transition: 'all .2s ease'
-          }}
-          title={keepPlaying ? 'Pause when tab loses focus' : 'Keep playing in background'}
-          aria-label={keepPlaying ? 'Pause when tab loses focus' : 'Keep playing in background'}
-        >
-          ▶ Play
-        </button>
-      )}
-
-      {showToggle && !failed && !showGate && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: '16px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            zIndex: 9999,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            background: 'var(--card2)',
-            border: '1px solid var(--border)',
-            borderRadius: '20px',
-            padding: '6px 14px',
-            opacity: 0.85,
-            transition: 'all .2s ease'
-          }}
-        >
-          <span style={{ fontSize: '11px', color: 'var(--text)', userSelect: 'none' }}>🔈</span>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={vol}
-            onChange={(e) => setVol(parseFloat(e.target.value))}
-            style={{
-              width: '80px',
-              height: '4px',
-              accentColor: 'var(--accent)',
-              cursor: 'pointer'
-            }}
-            title={`Volume: ${Math.round(vol * 100)}%`}
-            aria-label="Volume"
-          />
-          <span style={{ fontSize: '11px', color: 'var(--text)', userSelect: 'none', minWidth: '28px', textAlign: 'right' }}>{Math.round(vol * 100)}%</span>
+          <button
+            className="om-dock-btn"
+            data-on={playing}
+            onClick={toggle}
+            aria-pressed={playing}
+            title={playing ? 'Mute music' : 'Play music'}
+            aria-label={playing ? 'Mute music' : 'Play music'}
+          >
+            {playing ? '♪' : '♪̸'}
+          </button>
         </div>
       )}
     </>

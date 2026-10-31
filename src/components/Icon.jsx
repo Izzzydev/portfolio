@@ -20,12 +20,13 @@ import user from '../assets/icons/user.svg?raw'
 
 const registry = { ban, code, codeberg, email, external, gamepad, github, grid, music, robot, user }
 
-export default function Icon({ name, size = 18, style }) {
+export default function Icon({ name, size = 18, style, className }) {
   const svg = registry[name]
   if (!svg) return null
   return (
     <span
       aria-hidden="true"
+      className={className}
       style={{ width: size, height: size, display: 'inline-flex', flexShrink: 0, ...style }}
       dangerouslySetInnerHTML={{ __html: svg }}
     />

@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import ActivityRow from './components/ActivityRow.jsx'
 import AmbientAudio from './components/AmbientAudio.jsx'
 import Banner from './components/Banner.jsx'
 import ExternalLink from './components/ExternalLink.jsx'
@@ -43,6 +44,7 @@ const socialStyle = {
 
 export default function App() {
   const rootRef = useRef(null)
+  const headerRef = useRef(null)
 
   const [state, setState] = useState({
     avatarUrl: config.profile.fallbackAvatar,
@@ -53,6 +55,7 @@ export default function App() {
     activeTab: config.tabs[0]?.id,
     decorationUrl: '',
     hasDecoration: false,
+    activity: null,
   })
 
   // 'loading' → shimmer placeholder, 'ok' → the image, 'failed' → the initial.
@@ -63,6 +66,9 @@ export default function App() {
   // Colours handed to the banner effect. `ready` gates the effect so it mounts
   // once with the correct (avatar-matched) colours instead of flashing defaults.
   const [banner, setBanner] = useState({ ready: false, colors: DEFAULT_BANNER_COLORS })
+  // Guards extractPalette so a presence poll (every 20s, to keep the "now
+  // playing" row live) doesn't redo the k-means avatar analysis each time.
+  const paletteExtracted = useRef(false)
   const revealBanner = (colors, force) =>
     setBanner((b) => (force || !b.ready ? { ready: true, colors } : b))
 
@@ -111,12 +117,18 @@ export default function App() {
         statusColor: st.color,
         hasDecoration: !!presence.decorationUrl,
         decorationUrl: presence.decorationUrl,
+        activity: presence.activity,
       }))
       setRootVars({ '--status': st.color })
-      extractPalette(presence.avatarUrl, presence.decorationUrl)
+      // Only re-run the (expensive, cached-after-first-time) palette extraction
+      // on the very first load — later polls just refresh presence/activity.
+      if (!paletteExtracted.current) {
+        paletteExtracted.current = true
+        extractPalette(presence.avatarUrl, presence.decorationUrl)
+      }
     } catch (e) {
       const st = config.status.offline
-      setState((prev) => ({ ...prev, statusText: st.label, statusColor: st.color }))
+      setState((prev) => ({ ...prev, statusText: st.label, statusColor: st.color, activity: null }))
       setRootVars({ '--status': st.color })
       revealBanner(DEFAULT_BANNER_COLORS, false)
     }
@@ -131,7 +143,12 @@ export default function App() {
     const stopMarquees = startMarquees()
     // Fallback: if the avatar never resolves, show the effect with defaults.
     const t = setTimeout(() => revealBanner(DEFAULT_BANNER_COLORS, false), config.banner.revealTimeoutMs)
-    return () => { clearTimeout(t); stopMarquees() }
+    // Re-poll presence so the status dot and "now playing" row track reality
+    // instead of freezing at whatever was true when the page loaded. Paused
+    // while the tab is hidden so a forgotten background tab doesn't keep
+    // polling Lanyard forever.
+    const poll = setInterval(() => { if (!document.hidden) loadPresence() }, 20000)
+    return () => { clearTimeout(t); stopMarquees(); clearInterval(poll) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -236,6 +253,31 @@ export default function App() {
     setTimeout(() => setCopied((c) => (c === key ? '' : c)), 1600)
   }
 
+  // Subtle tilt on the profile card, following the cursor — the kind of
+  // detail that reads as "someone cared" without calling attention to
+  // itself. Capped to a couple of degrees and written straight to the node
+  // (not React state) since it fires on every pointer move. Skipped when the
+  // OS asks for reduced motion, and harmless on touch (no mousemove there).
+  const onCardMove = useCallback((e) => {
+    if (prefersReducedMotion()) return
+    const el = headerRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const px = (e.clientX - r.left) / r.width
+    const py = (e.clientY - r.top) / r.height
+    const rotY = (px - 0.5) * 4.5
+    const rotX = (0.5 - py) * 4.5
+    el.style.setProperty('--tilt', `rotateX(${rotX.toFixed(2)}deg) rotateY(${rotY.toFixed(2)}deg)`)
+    el.style.setProperty('--glow-x', (px * 100).toFixed(1) + '%')
+    el.style.setProperty('--glow-y', (py * 100).toFixed(1) + '%')
+  }, [])
+
+  const onCardLeave = useCallback(() => {
+    const el = headerRef.current
+    if (!el) return
+    el.style.setProperty('--tilt', 'rotateX(0deg) rotateY(0deg)')
+  }, [])
+
   // ── render ───────────────────────────────────────────────────────────────
   const bg = BG
   // The palette's dark shade — index 3 of the banner quad. Falls back to the
@@ -295,7 +337,13 @@ export default function App() {
       <main style={{ position: 'relative', zIndex: 2, width: '100%', maxWidth: '520px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
         {/* ===== PROFILE CARD ===== */}
-        <header className="om-card" style={{ animation: 'fadeUp .6s var(--ease-out) both', borderRadius: 'var(--r-xl)', overflow: 'hidden' }}>
+        <header
+          ref={headerRef}
+          className="om-card om-profile-card"
+          onMouseMove={onCardMove}
+          onMouseLeave={onCardLeave}
+          style={{ animation: 'fadeUp .6s var(--ease-out) both', borderRadius: 'var(--r-xl)', overflow: 'hidden' }}
+        >
           <div style={{ height: '140px', background: 'linear-gradient(120deg, var(--accent), var(--accent2) 55%, var(--accent3, var(--accent2)))', position: 'relative', overflow: 'hidden' }}>
             <Banner
               ready={banner.ready}
@@ -388,6 +436,8 @@ export default function App() {
                 <span aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--status)', display: 'inline-block', boxShadow: '0 0 10px var(--status)' }} />
                 {state.statusText}
               </div>
+
+              <ActivityRow activity={state.activity} />
             </div>
           </div>
         </header>

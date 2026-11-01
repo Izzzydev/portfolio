@@ -1,20 +1,99 @@
+/* ── index.css ────────────────────────────────────────────────────────────
+   Global styles and the design tokens everything else reads from.
+
+   Colour tokens (--accent, --card, --border, …) are written onto the page
+   root at runtime by App.jsx once the avatar palette resolves — see
+   lib/palette.js. The tokens below are the ones that never change: shape,
+   depth, timing. Keeping them here means a component can say
+   `box-shadow: var(--shadow-lift)` instead of re-inventing a shadow.
+   ───────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* shape */
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-xl: 22px;
+  --r-pill: 999px;
+
+  /* depth — layered rather than one big blur, so edges stay crisp */
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, .04) inset, 0 18px 40px -24px rgba(0, 0, 0, .9);
+  --shadow-lift: 0 1px 0 rgba(255, 255, 255, .06) inset, 0 28px 60px -28px rgba(0, 0, 0, .95);
+  --shadow-glow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent),
+                 0 10px 36px -14px color-mix(in srgb, var(--accent) 45%, transparent);
+
+  /* motion */
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur-fast: .16s;
+  --dur: .24s;
+  --dur-slow: .5s;
+}
+
 * { box-sizing: border-box; }
+
 html, body { margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
 body {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   background: #07080a;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
+
 a { color: inherit; text-decoration: none; }
 a:hover { color: var(--accent2); }
+
+button, input { font-family: inherit; }
+
 ::selection { background: var(--accent); color: #fff; }
 
-/* Full-page particle field, behind all content. */
+/* Scrollbar, tinted to the live palette instead of the browser default. */
+* { scrollbar-width: thin; scrollbar-color: var(--card3) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--card3);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--r-pill);
+}
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--accent) 55%, var(--card3)); background-clip: content-box; }
+
+/* One visible focus treatment for every control, so keyboard users get the
+   same affordance everywhere. Mouse clicks never trigger :focus-visible. */
+:focus-visible {
+  outline: 2px solid var(--accent3, var(--accent));
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* ── page background layers ──────────────────────────────────────────────
+   Three fixed layers under the content: the WebGL particle field, a film
+   grain, and the edge vignette. Grain sits between the two so it textures
+   the particles but isn't itself darkened at the edges.                    */
+
 .om-particles {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
+}
+
+/* Static SVG noise. Costs one tiny data URI and no frames, and it stops the
+   large flat dark areas from banding on cheap panels. */
+.om-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: .035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* Darkened page edges. Skipped on narrow screens: on a phone the viewport is
@@ -32,10 +111,482 @@ a:hover { color: var(--accent2); }
 }
 @media (max-width: 640px) {
   .om-vignette { display: none; }
+  .om-grain { opacity: .05; }
 }
 
-/* Click-to-enter gate. Its whole job is to guarantee a user gesture before
-   audio starts, so playback never depends on autoplay permission. */
+/* ── cards ───────────────────────────────────────────────────────────────
+   Every panel on the page. The ::before is a hairline of accent-tinted light
+   along the top edge — the thing that reads as "lit from above" and keeps a
+   flat dark rectangle from looking like a hole in the page.                */
+
+.om-card {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.om-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  background: linear-gradient(90deg,
+    transparent,
+    color-mix(in srgb, var(--accent3, var(--accent)) 45%, transparent) 30%,
+    color-mix(in srgb, var(--accent2) 45%, transparent) 70%,
+    transparent);
+  opacity: .7;
+  pointer-events: none;
+}
+
+/* ── profile card tilt + cursor glow ────────────────────────────────────
+   App.jsx writes --tilt / --glow-x / --glow-y straight to the node on
+   pointer move (see onCardMove) — a transition here is what turns those
+   discrete writes into motion, and what eases --tilt back to flat on
+   mouseleave. The glow is a radial mask that follows the cursor using the
+   same two custom properties, so the two effects read as one surface
+   reacting to the pointer rather than two unrelated hovers.             */
+
+.om-profile-card {
+  --tilt: rotateX(0deg) rotateY(0deg);
+  --glow-x: 50%;
+  --glow-y: 30%;
+  transform: perspective(900px) var(--tilt);
+  transform-style: preserve-3d;
+  transition: transform .4s var(--ease-out), box-shadow var(--dur) var(--ease);
+  will-change: transform;
+}
+.om-profile-card:hover { box-shadow: var(--shadow-lift); }
+.om-profile-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s var(--ease);
+  background: radial-gradient(360px 280px at var(--glow-x) var(--glow-y), color-mix(in srgb, var(--accent3, var(--accent)) 16%, transparent), transparent 70%);
+}
+.om-profile-card:hover::after { opacity: 1; }
+
+@media (hover: none) {
+  /* Touch has no cursor to follow — skip both effects rather than leave the
+     glow stuck in its default corner. */
+  .om-profile-card { transform: none !important; }
+  .om-profile-card::after { display: none; }
+}
+
+/* ── live activity row ──────────────────────────────────────────────────
+   Whatever Lanyard reports as happening right now (Spotify, a custom status,
+   or a game) — see components/ActivityRow.jsx. One row, one visual language,
+   so it reads as part of the status line rather than a bolted-on widget.   */
+
+.om-activity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 7px 10px 7px 7px;
+  border-radius: var(--r-md);
+  background: var(--card2);
+  border: 1px solid var(--border);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease);
+  animation: fadeUp .4s var(--ease-out) both;
+}
+a.om-activity:hover {
+  border-color: color-mix(in srgb, var(--accent3, var(--accent)) 45%, transparent);
+  background: var(--card3);
+  transform: translateY(-1px);
+}
+.om-activity--plain { padding: 7px 12px; }
+
+.om-activity-art {
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--card3);
+  border: 1px solid var(--border);
+}
+
+.om-activity-emoji { width: 18px; height: 18px; flex-shrink: 0; }
+
+.om-activity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.om-activity-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+.om-activity-kicker {
+  flex-shrink: 0;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  color: var(--accent3, var(--accent));
+}
+
+.om-activity-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.om-activity-sub {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.om-activity-time {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.om-activity-progress {
+  display: block;
+  margin-top: 3px;
+  width: 100%;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: var(--card3);
+  overflow: hidden;
+}
+.om-activity-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--accent3, var(--accent)), var(--accent2));
+  transition: width 1s linear;
+}
+
+/* Three-bar "now playing" equalizer, each bar bouncing on its own timer. */
+.om-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+}
+.om-eq i {
+  display: block;
+  width: 2.5px;
+  border-radius: 1px;
+  background: var(--accent3, var(--accent));
+  animation: eqBounce 1.1s ease-in-out infinite;
+}
+.om-eq i:nth-child(1) { animation-delay: -0.9s; }
+.om-eq i:nth-child(2) { animation-delay: -0.4s; }
+.om-eq i:nth-child(3) { animation-delay: -0.6s; }
+
+@keyframes eqBounce {
+  0%, 100% { height: 3px; }
+  50% { height: 11px; }
+}
+
+/* ── tab bar ─────────────────────────────────────────────────────────────
+   The active pill is a single absolutely-positioned element that slides
+   between slots (App.jsx measures the active button and sets left/width),
+   rather than each button animating its own background. One moving part
+   means the motion reads as one object, and no cross-fade flicker.
+
+   The columns are `fr` units rather than equal shares, and the selected one
+   is widened enough to fit its label — App.jsx computes both track lists and
+   passes them as --cols / --cols-even. `fr` values interpolate, so the row
+   widens in step with the sliding pill instead of snapping.                */
+
+.om-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--cols);
+  transition: grid-template-columns var(--dur-slow) var(--ease-out);
+  gap: 4px;
+  padding: 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+}
+
+.om-tab-pill {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  border-radius: var(--r-sm);
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--accent) 80%, transparent);
+  /* Position is written per-frame from App.jsx while the row's tracks animate,
+     so the pill needs no transition of its own — one would fight the other. */
+  pointer-events: none;
+}
+
+.om-tab {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 11px 6px;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.om-tab:hover { color: var(--text); }
+.om-tab:active { transform: scale(.94); }
+.om-tab[aria-selected='true'] { color: #0b0d10; }
+
+/* The active tab's label. Hidden (width 0) on the inactive tabs so the row
+   stays an icon strip, and revealed only for the selected one — the label
+   grows out of the pill as it arrives. */
+.om-tab-label {
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  opacity: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  transition: max-width var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease);
+}
+.om-tab[aria-selected='true'] .om-tab-label { max-width: 160px; opacity: 1; }
+
+/* Below this the labels no longer fit alongside the icons, so the row goes
+   back to equal icon-sized slots. */
+@media (max-width: 560px) {
+  .om-tab-label { display: none; }
+  .om-tabs { grid-template-columns: var(--cols-even); }
+}
+
+/* ── section entrance ────────────────────────────────────────────────────
+   Keyed on the tab id in App.jsx, so switching tabs replays it.            */
+
+.om-section { animation: sectionIn .42s var(--ease-out) both; }
+
+@keyframes sectionIn {
+  from { opacity: 0; transform: translateY(10px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Children stagger in behind the card itself. --i is set per child. */
+.om-stagger > * { animation: fadeUp .5s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 55ms + 80ms); }
+
+/* ── chips, lists, rows ──────────────────────────────────────────────────*/
+
+.om-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 6px 13px;
+  border-radius: var(--r-pill);
+  background: var(--card2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.om-chip:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent3, var(--accent)) 55%, transparent);
+  background: var(--card3);
+}
+
+/* Bulleted list used by text sections with layout: "list" (the DNI tab).
+   The marker is a diamond drawn with CSS so it inherits the accent. */
+.om-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.om-list li {
+  position: relative;
+  padding: 9px 14px 9px 32px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  text-wrap: pretty;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.om-list li::before {
+  content: '';
+  position: absolute;
+  left: 13px;
+  top: 1.1em;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  transform: translateY(-50%) rotate(45deg);
+  background: var(--accent3, var(--accent));
+  opacity: .85;
+  transition: transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.om-list li:hover {
+  background: var(--card2);
+  border-color: var(--border);
+  transform: translateX(3px);
+}
+.om-list li:hover::before { transform: translateY(-50%) rotate(135deg); opacity: 1; }
+
+/* ── audio dock ──────────────────────────────────────────────────────────
+   One control in the bottom-right corner instead of three scattered ones.
+   Collapsed it is a single round button; hover or focus expands it leftward
+   to reveal the volume slider and the background-playback pin.             */
+
+.om-dock {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--card) 86%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.om-dock:hover,
+.om-dock:focus-within {
+  border-color: color-mix(in srgb, var(--accent3, var(--accent)) 45%, transparent);
+  box-shadow: var(--shadow-lift);
+}
+
+/* The expanding half. Collapsed to zero width, so the dock is a lone button
+   until it is wanted. */
+.om-dock-expand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-width var(--dur-slow) var(--ease-out), opacity var(--dur) var(--ease), margin var(--dur-slow) var(--ease-out);
+}
+.om-dock:hover .om-dock-expand,
+.om-dock:focus-within .om-dock-expand {
+  max-width: 190px;
+  opacity: 1;
+  margin-left: 4px;
+}
+
+.om-dock-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  color: var(--accent3, var(--accent));
+  transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.om-dock-btn:hover { transform: scale(1.06); border-color: var(--accent3, var(--accent)); }
+.om-dock-btn:active { transform: scale(.94); }
+.om-dock-btn[data-on='true'] {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: #0b0d10;
+  border-color: transparent;
+}
+
+/* Small square toggle for "keep playing when the tab is in the background". */
+.om-dock-pin {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  transition: all var(--dur) var(--ease);
+}
+.om-dock-pin:hover { color: var(--text); border-color: var(--accent3, var(--accent)); }
+.om-dock-pin[data-on='true'] {
+  color: var(--accent3, var(--accent));
+  border-color: color-mix(in srgb, var(--accent3, var(--accent)) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Range input, restyled. --fill is set inline from the current volume so the
+   filled portion of the track tracks the thumb. */
+.om-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 92px;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+}
+.om-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--accent) var(--fill, 50%), var(--card3) var(--fill, 50%));
+}
+.om-range::-moz-range-track { height: 4px; border-radius: var(--r-pill); background: var(--card3); }
+.om-range::-moz-range-progress { height: 4px; border-radius: var(--r-pill); background: var(--accent); }
+.om-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .5);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.om-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .5);
+}
+.om-range:hover::-webkit-slider-thumb { transform: scale(1.25); }
+
+/* ── click-to-enter gate ─────────────────────────────────────────────────
+   Its whole job is to guarantee a user gesture before audio starts, so
+   playback never depends on autoplay permission.                           */
+
 .om-gate {
   position: fixed;
   inset: 0;
@@ -46,24 +597,23 @@ a:hover { color: var(--accent2); }
   overflow: hidden;
   cursor: pointer;
   background: rgba(6, 7, 9, 0.86);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  animation: fadeUp .4s ease both;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: fadeIn .4s var(--ease) both;
 }
 
 /* Same expanding-ring pulse the status dot uses, scaled up for the bubble. */
 @keyframes gatePulse {
-  0%, 100% { box-shadow: 0 0 0 0 var(--accent3, var(--accent)); }
-  70%      { box-shadow: 0 0 0 14px transparent; }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent3, var(--accent)) 60%, transparent); }
+  70%      { box-shadow: 0 0 0 16px transparent; }
 }
 
 .om-gate-bubble {
   position: relative;
   z-index: 1;
-  padding: 15px 28px;
-  border-radius: 999px;
+  padding: 16px 30px;
+  border-radius: var(--r-pill);
   cursor: pointer;
-  font-family: inherit;
   font-size: 11px;
   letter-spacing: 3px;
   text-transform: uppercase;
@@ -71,7 +621,7 @@ a:hover { color: var(--accent2); }
   background: var(--card);
   border: 1px solid var(--border);
   animation: gatePulse 2.4s infinite;
-  transition: transform .2s ease, border-color .2s ease, color .2s ease;
+  transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .om-gate:hover .om-gate-bubble {
   transform: translateY(-2px);
@@ -79,32 +629,15 @@ a:hover { color: var(--accent2); }
   color: var(--text);
 }
 
-/* Music mute/unmute control. */
-.om-audio-toggle {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  z-index: 5;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: 15px;
-  line-height: 1;
-  background: var(--card2);
-  border: 1px solid var(--border);
-  color: var(--accent3, var(--accent));
-  transition: transform .2s ease, border-color .2s ease;
-}
-.om-audio-toggle:hover {
-  transform: translateY(-2px);
-  border-color: var(--accent3, var(--accent));
-}
+/* ── keyframes ───────────────────────────────────────────────────────────*/
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(14px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: none; }
 }
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 0 var(--status); }
@@ -114,10 +647,76 @@ a:hover { color: var(--accent2); }
   0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
+@keyframes spinSlow {
+  to { transform: rotate(360deg); }
+}
 
-/* hover states (ported from DC style-hover attributes) */
-.om-social:hover { transform: translateY(-2px); border-color: var(--accent3, var(--accent)) !important; }
-.om-lang-tile:hover { transform: translateY(-5px) scale(1.14); }
-.om-game-card:hover { transform: translateY(-6px) scale(1.08); }
-.om-music-row:hover { background: var(--card3) !important; }
-.om-project-card:hover { transform: translateY(-3px); border-color: var(--accent2) !important; }
+/* Placeholder shown in the avatar slot until the real image decodes. */
+.om-skeleton {
+  background: linear-gradient(90deg, var(--card2) 25%, var(--card3) 37%, var(--card2) 63%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* ── hover states ────────────────────────────────────────────────────────*/
+
+.om-social {
+  position: relative;
+  transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.om-social:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--accent3, var(--accent)) 60%, transparent) !important;
+  background: var(--card3) !important;
+  color: var(--accent3, var(--accent));
+}
+.om-social:active { transform: translateY(-1px) scale(.95); }
+
+.om-lang-tile:hover { transform: translateY(-5px) scale(1.12); border-color: color-mix(in srgb, var(--accent3, var(--accent)) 50%, transparent) !important; }
+.om-game-card:hover { transform: translateY(-6px) scale(1.06); border-color: color-mix(in srgb, var(--accent3, var(--accent)) 50%, transparent) !important; }
+
+.om-project-card {
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+/* Accent wash that fades in from the card's top-right on hover. */
+.om-project-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(340px 180px at 100% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%);
+  transition: opacity var(--dur) var(--ease);
+}
+.om-project-card:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--accent2) 60%, transparent) !important;
+  box-shadow: var(--shadow-glow);
+}
+.om-project-card:hover::after { opacity: 1; }
+/* The external-link arrow leans out as the card lifts. */
+.om-project-card .om-arrow { transition: transform var(--dur) var(--ease), color var(--dur) var(--ease); }
+.om-project-card:hover .om-arrow { transform: translate(2px, -2px); color: var(--accent3, var(--accent)); }
+
+/* ── reduced motion ──────────────────────────────────────────────────────
+   Honour the OS setting: kill the decorative loops and entrance animations,
+   keep the state-change transitions short rather than instant so controls
+   still feel connected to the click.                                       */
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .om-tabs { transition-duration: .08s; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .08s !important;
+  }
+  .om-grain { display: none; }
+  .om-list li:hover,
+  .om-project-card:hover,
+  .om-lang-tile:hover,
+  .om-game-card:hover,
+  .om-social:hover { transform: none; }
+}

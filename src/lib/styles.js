@@ -1,14 +1,17 @@
 // ── styles.js ────────────────────────────────────────────────────────────
 // Shared inline style objects used by more than one component. Anything used
 // by a single component stays in that component.
+//
+// The card *look* (surface, border, top-edge highlight, shadow) lives in the
+// .om-card rule in index.css; sections add the class and supply only their
+// own padding here.
 
-// The rounded card every tab section sits in.
-export const cardStyle = {
-  animation: 'fadeUp .45s ease both',
-  background: 'var(--card)',
-  border: '1px solid var(--border)',
-  borderRadius: '16px',
-}
+// Padding presets for the card every tab section sits in.
+export const cardPad = { padding: '22px 24px' }
+
+// Variant for sections whose content bleeds to the card's edges (marquees),
+// which handle their own horizontal padding per-row.
+export const cardPadBleed = { padding: '22px 0 24px', overflow: 'hidden' }
 
 // The small uppercase section heading text.
 export const headingStyle = {
@@ -18,6 +21,7 @@ export const headingStyle = {
   letterSpacing: '2px',
   textTransform: 'uppercase',
   color: 'var(--muted)',
+  whiteSpace: 'nowrap',
 }
 
 // Horizontal fade mask wrapped around each marquee row.

@@ -1,4 +1,5 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import ActivityRow from './components/ActivityRow.jsx'
 import AmbientAudio from './components/AmbientAudio.jsx'
 import Banner from './components/Banner.jsx'
 import ExternalLink from './components/ExternalLink.jsx'
@@ -23,22 +24,27 @@ const AUDIO = config.audio || {}
 // Loaded on demand so the point-cloud's WebGL code isn't in the entry chunk.
 const Particles = lazy(() => import('./components/backgrounds/Particles.jsx'))
 
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
 // Shared by the social links and the copy-to-clipboard buttons, so the two
 // render identically whichever element type they end up as.
 const socialStyle = {
-  width: '36px',
-  height: '36px',
-  borderRadius: '10px',
+  width: '38px',
+  height: '38px',
+  borderRadius: 'var(--r-sm)',
   background: 'var(--card2)',
   border: '1px solid var(--border)',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  transition: 'all .2s ease',
 }
 
 export default function App() {
   const rootRef = useRef(null)
+  const headerRef = useRef(null)
 
   const [state, setState] = useState({
     avatarUrl: config.profile.fallbackAvatar,
@@ -49,11 +55,20 @@ export default function App() {
     activeTab: config.tabs[0]?.id,
     decorationUrl: '',
     hasDecoration: false,
+    activity: null,
   })
+
+  // 'loading' → shimmer placeholder, 'ok' → the image, 'failed' → the initial.
+  // Without the last one a blocked or deleted avatar leaves the browser's
+  // broken-image box with the alt text spilling across the banner.
+  const [avatarState, setAvatarState] = useState('loading')
 
   // Colours handed to the banner effect. `ready` gates the effect so it mounts
   // once with the correct (avatar-matched) colours instead of flashing defaults.
   const [banner, setBanner] = useState({ ready: false, colors: DEFAULT_BANNER_COLORS })
+  // Guards extractPalette so a presence poll (every 20s, to keep the "now
+  // playing" row live) doesn't redo the k-means avatar analysis each time.
+  const paletteExtracted = useRef(false)
   const revealBanner = (colors, force) =>
     setBanner((b) => (force || !b.ready ? { ready: true, colors } : b))
 
@@ -102,31 +117,121 @@ export default function App() {
         statusColor: st.color,
         hasDecoration: !!presence.decorationUrl,
         decorationUrl: presence.decorationUrl,
+        activity: presence.activity,
       }))
       setRootVars({ '--status': st.color })
-      extractPalette(presence.avatarUrl, presence.decorationUrl)
+      // Only re-run the (expensive, cached-after-first-time) palette extraction
+      // on the very first load — later polls just refresh presence/activity.
+      if (!paletteExtracted.current) {
+        paletteExtracted.current = true
+        extractPalette(presence.avatarUrl, presence.decorationUrl)
+      }
     } catch (e) {
       const st = config.status.offline
-      setState((prev) => ({ ...prev, statusText: st.label, statusColor: st.color }))
+      setState((prev) => ({ ...prev, statusText: st.label, statusColor: st.color, activity: null }))
       setRootVars({ '--status': st.color })
       revealBanner(DEFAULT_BANNER_COLORS, false)
     }
   }
+
+  // A new avatar URL gets a fresh attempt, so a failed fallback image doesn't
+  // keep the initial showing once presence resolves.
+  useEffect(() => { setAvatarState('loading') }, [state.avatarUrl])
 
   useEffect(() => {
     loadPresence()
     const stopMarquees = startMarquees()
     // Fallback: if the avatar never resolves, show the effect with defaults.
     const t = setTimeout(() => revealBanner(DEFAULT_BANNER_COLORS, false), config.banner.revealTimeoutMs)
-    return () => { clearTimeout(t); stopMarquees() }
+    // Re-poll presence so the status dot and "now playing" row track reality
+    // instead of freezing at whatever was true when the page loaded. Paused
+    // while the tab is hidden so a forgotten background tab doesn't keep
+    // polling Lanyard forever.
+    const poll = setInterval(() => { if (!document.hidden) loadPresence() }, 20000)
+    return () => { clearTimeout(t); stopMarquees(); clearInterval(poll) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── render ───────────────────────────────────────────────────────────────
+  // ── tabs ─────────────────────────────────────────────────────────────────
   const active = state.activeTab
-  const activeTab = config.tabs.find((t) => t.id === active)
+  const activeIndex = config.tabs.findIndex((t) => t.id === active)
+  const activeTab = config.tabs[activeIndex]
   const Section = activeTab ? SECTION_TYPES[activeTab.type] : null
 
+  const setTab = (tab) => setState((prev) => ({ ...prev, activeTab: tab }))
+
+  // The sliding pill behind the active tab. Its geometry is measured from the
+  // real button rather than computed from the tab count, so it stays correct
+  // when labels change the widths or the row reflows.
+  const tabsRef = useRef(null)
+  const tabRefs = useRef([])
+  const pillRef = useRef(null)
+
+  // Written straight to the node rather than held in state: this runs once a
+  // frame while the row's grid tracks animate, and re-rendering the whole
+  // page on each of those frames would be the expensive way to move one box.
+  const measurePill = useCallback(() => {
+    const el = tabRefs.current[activeIndex]
+    const pill = pillRef.current
+    if (!el || !pill) return
+    pill.style.left = el.offsetLeft + 'px'
+    pill.style.width = el.offsetWidth + 'px'
+  }, [activeIndex])
+
+  // useLayoutEffect so the pill is in place before the browser paints the new
+  // selection — otherwise it visibly jumps on first render. The follow-up
+  // frames track the grid-template-columns transition: the button's final
+  // geometry isn't known until that transition finishes, so a single
+  // measurement would leave the pill behind the label it is supposed to sit
+  // under. 700ms covers the 500ms transition with room for a slow frame.
+  useLayoutEffect(() => {
+    measurePill()
+    let raf = 0
+    const until = performance.now() + 700
+    const loop = () => {
+      measurePill()
+      if (performance.now() < until) raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [measurePill])
+
+  useEffect(() => {
+    // Label widths settle once the webfont swaps in; re-measure then and on
+    // any resize that reflows the row.
+    const ro = new ResizeObserver(measurePill)
+    if (tabsRef.current) ro.observe(tabsRef.current)
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(measurePill).catch(() => {})
+    return () => ro.disconnect()
+  }, [measurePill])
+
+  // Grid tracks for the tab row. Every tab gets one share; the selected one
+  // gets extra in proportion to how long its label is, so a 15-character
+  // title ("Do Not Interact") isn't clipped by an equal sixth of the row.
+  const colFor = (tab, i) => {
+    if (i !== activeIndex) return '1fr'
+    const weight = Math.min(3.4, Math.max(1.6, 1 + (tab.title || '').length * 0.16))
+    return weight.toFixed(2) + 'fr'
+  }
+  const cols = config.tabs.map(colFor).join(' ')
+  const colsEven = `repeat(${config.tabs.length}, 1fr)`
+
+  // Arrow keys move between tabs, Home/End jump to the ends — the roving
+  // behaviour expected of a tablist.
+  const onTabKeyDown = (e) => {
+    const last = config.tabs.length - 1
+    let next = null
+    if (e.key === 'ArrowRight') next = activeIndex >= last ? 0 : activeIndex + 1
+    else if (e.key === 'ArrowLeft') next = activeIndex <= 0 ? last : activeIndex - 1
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = last
+    if (next === null) return
+    e.preventDefault()
+    setTab(config.tabs[next].id)
+    tabRefs.current[next]?.focus()
+  }
+
+  // ── clipboard ────────────────────────────────────────────────────────────
   // Which social was just copied, so the button can confirm it briefly.
   const [copied, setCopied] = useState('')
   const copyToClipboard = async (text, key) => {
@@ -148,26 +253,37 @@ export default function App() {
     setTimeout(() => setCopied((c) => (c === key ? '' : c)), 1600)
   }
 
+  // Subtle tilt on the profile card, following the cursor — the kind of
+  // detail that reads as "someone cared" without calling attention to
+  // itself. Capped to a couple of degrees and written straight to the node
+  // (not React state) since it fires on every pointer move. Skipped when the
+  // OS asks for reduced motion, and harmless on touch (no mousemove there).
+  const onCardMove = useCallback((e) => {
+    if (prefersReducedMotion()) return
+    const el = headerRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const px = (e.clientX - r.left) / r.width
+    const py = (e.clientY - r.top) / r.height
+    const rotY = (px - 0.5) * 4.5
+    const rotX = (0.5 - py) * 4.5
+    el.style.setProperty('--tilt', `rotateX(${rotX.toFixed(2)}deg) rotateY(${rotY.toFixed(2)}deg)`)
+    el.style.setProperty('--glow-x', (px * 100).toFixed(1) + '%')
+    el.style.setProperty('--glow-y', (py * 100).toFixed(1) + '%')
+  }, [])
+
+  const onCardLeave = useCallback(() => {
+    const el = headerRef.current
+    if (!el) return
+    el.style.setProperty('--tilt', 'rotateX(0deg) rotateY(0deg)')
+  }, [])
+
+  // ── render ───────────────────────────────────────────────────────────────
   const bg = BG
   // The palette's dark shade — index 3 of the banner quad. Falls back to the
   // configured default before the avatar has been analysed.
   const particleColor = banner.colors[3] || DEFAULT_BANNER_COLORS[3]
-
-  const tabBtn = (on) => ({
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: 'inherit',
-    cursor: 'pointer',
-    padding: '11px 6px',
-    borderRadius: '10px',
-    border: '1px solid ' + (on ? 'transparent' : 'var(--border)'),
-    background: on ? 'var(--accent)' : 'transparent',
-    color: on ? '#0b0d10' : 'var(--muted)',
-    transition: 'all .18s ease',
-  })
-
-  const setTab = (tab) => setState((prev) => ({ ...prev, activeTab: tab }))
+  const showParticles = bg.particles !== false && !prefersReducedMotion()
 
   return (
     <div
@@ -180,13 +296,13 @@ export default function App() {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'flex-start',
-        padding: '48px 20px 80px',
-        background: 'radial-gradient(1200px 600px at 50% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 70%), var(--bg)',
+        padding: 'clamp(28px, 6vw, 56px) clamp(14px, 4vw, 20px) 110px',
+        background: 'radial-gradient(1200px 600px at 50% -10%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 70%), var(--bg)',
         color: 'var(--text)',
       }}
     >
       {/* ===== PAGE BACKGROUND ===== */}
-      {bg.particles !== false && (
+      {showParticles && (
         <div className="om-particles" aria-hidden="true">
           <Suspense fallback={null}>
             {/* keyed on the colour so a late palette update restarts the field */}
@@ -204,6 +320,7 @@ export default function App() {
           </Suspense>
         </div>
       )}
+      {bg.grain !== false && <div className="om-grain" aria-hidden="true" />}
       {bg.vignette !== false && <div className="om-vignette" aria-hidden="true" />}
 
       {/* Renders nothing until audio.src is set in site.config.json. */}
@@ -217,11 +334,17 @@ export default function App() {
         gateLabel={AUDIO.gateLabel || 'click anywhere to enter'}
       />
 
-      <div style={{ position: 'relative', zIndex: 2, width: '100%', maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+      <main style={{ position: 'relative', zIndex: 2, width: '100%', maxWidth: '520px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
         {/* ===== PROFILE CARD ===== */}
-        <div style={{ animation: 'fadeUp .6s ease both', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '20px', overflow: 'hidden', boxShadow: '0 24px 60px -20px rgba(0,0,0,.7)' }}>
-          <div style={{ height: '130px', background: 'linear-gradient(120deg, var(--accent), var(--accent2) 55%, var(--accent3, var(--accent2)))', position: 'relative', overflow: 'hidden' }}>
+        <header
+          ref={headerRef}
+          className="om-card om-profile-card"
+          onMouseMove={onCardMove}
+          onMouseLeave={onCardLeave}
+          style={{ animation: 'fadeUp .6s var(--ease-out) both', borderRadius: 'var(--r-xl)', overflow: 'hidden' }}
+        >
+          <div style={{ height: '140px', background: 'linear-gradient(120deg, var(--accent), var(--accent2) 55%, var(--accent3, var(--accent2)))', position: 'relative', overflow: 'hidden' }}>
             <Banner
               ready={banner.ready}
               colors={banner.colors}
@@ -229,23 +352,47 @@ export default function App() {
               shift={config.banner.parallaxShift}
               overscan={config.banner.overscan}
             />
-            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'radial-gradient(400px 200px at 80% 120%, rgba(255,255,255,.18), transparent 60%)' }} />
-            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg, transparent 55%, rgba(0,0,0,.28))' }} />
+            {/* soft highlight + a floor shadow, so the avatar has something to sit on */}
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'radial-gradient(420px 220px at 80% 120%, rgba(255,255,255,.18), transparent 60%)' }} />
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: 'linear-gradient(180deg, transparent 50%, rgba(0,0,0,.42))' }} />
           </div>
-          <div style={{ padding: '0 22px 22px', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: '-46px', left: '22px' }}>
-              <div style={{ position: 'relative', width: '92px', height: '92px' }}>
-                <div style={{ width: '92px', height: '92px', borderRadius: '50%', border: '6px solid var(--card)', overflow: 'hidden', background: 'var(--card2)' }}>
-                  <img src={state.avatarUrl} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+
+          <div style={{ padding: '0 24px 24px', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: '-48px', left: '24px' }}>
+              <div style={{ position: 'relative', width: '96px', height: '96px' }}>
+                {/* Faint accent halo — reads as the avatar catching the banner's light. */}
+                <div aria-hidden="true" style={{ position: 'absolute', inset: '-10px', borderRadius: '50%', background: 'radial-gradient(circle, color-mix(in srgb, var(--accent) 40%, transparent), transparent 68%)', filter: 'blur(8px)', opacity: 0.75, pointerEvents: 'none' }} />
+                <div style={{ position: 'relative', width: '96px', height: '96px', borderRadius: '50%', border: '6px solid var(--card)', overflow: 'hidden', background: 'var(--card2)' }}>
+                  {avatarState === 'loading' && <div className="om-skeleton" aria-hidden="true" style={{ position: 'absolute', inset: 0 }} />}
+                  {avatarState === 'failed' ? (
+                    <div
+                      role="img"
+                      aria-label={`${state.displayName} avatar`}
+                      style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '34px', fontWeight: 800, color: '#0b0d10', background: 'linear-gradient(135deg, var(--accent), var(--accent2))' }}
+                    >
+                      {(state.displayName || '?').trim().charAt(0).toUpperCase()}
+                    </div>
+                  ) : (
+                    <img
+                      src={state.avatarUrl}
+                      alt={`${state.displayName} avatar`}
+                      onLoad={() => setAvatarState('ok')}
+                      onError={() => setAvatarState('failed')}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: avatarState === 'ok' ? 1 : 0, transition: 'opacity .4s var(--ease)' }}
+                    />
+                  )}
                 </div>
                 {state.hasDecoration && (
-                  <img src={state.decorationUrl} alt="decoration" style={{ position: 'absolute', top: '50%', left: '50%', width: '124%', height: '124%', transform: 'translate(-50%,-50%)', pointerEvents: 'none' }} />
+                  <img src={state.decorationUrl} alt="" aria-hidden="true" style={{ position: 'absolute', top: '50%', left: '50%', width: '124%', height: '124%', transform: 'translate(-50%,-50%)', pointerEvents: 'none' }} />
                 )}
-                <span style={{ position: 'absolute', right: '2px', bottom: '8px', width: '20px', height: '20px', borderRadius: '50%', border: '4px solid var(--card)', background: 'var(--status)', animation: 'pulse 2.4s infinite', zIndex: 2 }} />
+                <span
+                  title={state.statusText}
+                  style={{ position: 'absolute', right: '2px', bottom: '8px', width: '20px', height: '20px', borderRadius: '50%', border: '4px solid var(--card)', background: 'var(--status)', animation: 'pulse 2.4s infinite', zIndex: 2 }}
+                />
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '14px', gap: '8px' }}>
+            <nav aria-label="Social links" style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: '16px', gap: '8px' }}>
               {config.profile.socials.map((s) => (
                 // A social with `copy` instead of `url` puts that text on the
                 // clipboard rather than navigating — used for the address, so
@@ -257,7 +404,7 @@ export default function App() {
                     className="om-social"
                     title={copied === s.title ? 'Copied' : `Copy ${s.copy}`}
                     aria-label={`Copy ${s.title.toLowerCase()} address`}
-                    style={{ ...socialStyle, cursor: 'pointer', fontFamily: 'inherit', color: copied === s.title ? 'var(--accent3, var(--accent))' : 'inherit' }}
+                    style={{ ...socialStyle, cursor: 'pointer', color: copied === s.title ? 'var(--accent3, var(--accent))' : 'inherit' }}
                   >
                     {copied === s.title ? '✓' : <Icon name={s.icon} size={18} />}
                   </button>
@@ -267,38 +414,85 @@ export default function App() {
                   </ExternalLink>
                 )
               ))}
-            </div>
+            </nav>
 
-            <div style={{ marginTop: '4px' }}>
+            <div style={{ marginTop: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <h1 style={{ margin: 0, fontSize: '26px', fontWeight: 800, letterSpacing: '-.5px' }}>{state.displayName}</h1>
-                <span style={{ fontSize: '12px', color: 'var(--muted)', background: 'var(--card2)', border: '1px solid var(--border)', padding: '3px 9px', borderRadius: '20px' }}>{state.userTag}</span>
+                <h1 style={{
+                  margin: 0,
+                  fontSize: 'clamp(22px, 6vw, 27px)',
+                  fontWeight: 800,
+                  letterSpacing: '-.6px',
+                  // Faintly graded so the name reads as the brightest thing on
+                  // the page without being pure white against near-black.
+                  background: 'linear-gradient(100deg, var(--text), color-mix(in srgb, var(--text) 72%, var(--accent3, var(--accent))))',
+                  WebkitBackgroundClip: 'text',
+                  backgroundClip: 'text',
+                  color: 'transparent',
+                }}>{state.displayName}</h1>
+                <span className="om-chip" style={{ fontSize: '12px', color: 'var(--muted)', padding: '4px 10px' }}>{state.userTag}</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '6px', fontSize: '13px', color: 'var(--muted)' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--status)', display: 'inline-block' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '13px', color: 'var(--muted)' }}>
+                <span aria-hidden="true" style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--status)', display: 'inline-block', boxShadow: '0 0 10px var(--status)' }} />
                 {state.statusText}
               </div>
+
+              <ActivityRow activity={state.activity} />
             </div>
           </div>
-        </div>
+        </header>
 
         {/* ===== TAB BAR ===== */}
-        <div style={{ animation: 'fadeUp .6s ease .06s both', display: 'grid', gridTemplateColumns: `repeat(${config.tabs.length},1fr)`, gap: '6px', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: '14px', padding: '6px' }}>
-          {config.tabs.map((tab) => (
-            <button key={tab.id} onClick={() => setTab(tab.id)} title={tab.title} style={tabBtn(active === tab.id)}>
-              <Icon name={tab.icon} size={18} />
-            </button>
-          ))}
+        <div
+          className="om-tabs"
+          ref={tabsRef}
+          role="tablist"
+          aria-label="Sections"
+          onKeyDown={onTabKeyDown}
+          style={{ animation: 'fadeUp .6s var(--ease-out) .06s both', '--cols': cols, '--cols-even': colsEven }}
+        >
+          <span className="om-tab-pill" ref={pillRef} aria-hidden="true" />
+          {config.tabs.map((tab, i) => {
+            const on = active === tab.id
+            return (
+              <button
+                key={tab.id}
+                ref={(el) => { tabRefs.current[i] = el }}
+                className="om-tab"
+                role="tab"
+                id={`tab-${tab.id}`}
+                aria-selected={on}
+                aria-controls={`panel-${tab.id}`}
+                tabIndex={on ? 0 : -1}
+                onClick={() => setTab(tab.id)}
+                title={tab.title}
+              >
+                <Icon name={tab.icon} size={18} />
+                <span className="om-tab-label">{tab.title}</span>
+              </button>
+            )
+          })}
         </div>
 
         {/* ===== ACTIVE SECTION ===== */}
-        {Section && <Section key={activeTab.id} tab={activeTab} />}
-
-        {config.footer && (
-          <div style={{ textAlign: 'center', fontSize: '11px', color: 'var(--muted)', opacity: 0.6, paddingTop: '4px' }}>{config.footer}</div>
+        {Section && (
+          <div
+            key={activeTab.id}
+            className="om-section"
+            role="tabpanel"
+            id={`panel-${activeTab.id}`}
+            aria-labelledby={`tab-${activeTab.id}`}
+            tabIndex={-1}
+          >
+            <Section tab={activeTab} />
+          </div>
         )}
 
-      </div>
+        {config.footer && (
+          <footer style={{ textAlign: 'center', fontSize: '11px', color: 'var(--muted)', opacity: 0.55, paddingTop: '6px', letterSpacing: '.4px' }}>{config.footer}</footer>
+        )}
+
+      </main>
     </div>
   )
 }
